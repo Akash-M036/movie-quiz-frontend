@@ -11,52 +11,51 @@ export default function Quiz() {
     userId, questions, currentQ, setCurrentQ,
     answers, setAnswers, setScore, setPhase,
     startTime, lifelinesUsed, setLifelinesUsed,
-    eliminatedOptions, setEliminatedOptions,
     doubleTryActive, setDoubleTryActive,
     doubleTryFirst, setDoubleTryFirst
   } = useQuiz();
 
-  const [selected, setSelected]           = useState(null);
-  const [timeLeft, setTimeLeft]           = useState(TOTAL_TIME);
-  const [submitting, setSubmitting]       = useState(false);
-  const [showModal, setShowModal]         = useState(null);
-  const [locked, setLocked]              = useState(false);
+  const [selected, setSelected]     = useState(null);
+  const [eliminated, setEliminated] = useState([]); // LOCAL state, not context
+  const [timeLeft, setTimeLeft]     = useState(TOTAL_TIME);
+  const [submitting, setSubmitting] = useState(false);
+  const [showModal, setShowModal]   = useState(null);
+  const [locked, setLocked]         = useState(false);
 
-  const answersRef   = useRef(answers);
-  const timeLeftRef  = useRef(timeLeft);
-  const lockedRef    = useRef(locked);
-
+  const answersRef  = useRef(answers);
+  const timeLeftRef = useRef(timeLeft);
   answersRef.current  = answers;
   timeLeftRef.current = timeLeft;
-  lockedRef.current   = locked;
 
   const q      = questions[currentQ];
   const totalQ = questions.length;
 
-  // One-time 10-minute countdown
+  // 10-minute global timer — runs once
   useEffect(() => {
     const interval = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(interval);
-          if (!lockedRef.current) doFinish(answersRef.current, 0);
+          doFinish(answersRef.current, 0);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []); // eslint-disable-line
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset per-question state ONLY — never touch eliminatedOptions here
+  // Reset per-question UI when question changes
   useEffect(() => {
     setSelected(null);
+    setEliminated([]); // always reset eliminated for new question
     setLocked(false);
+    setDoubleTryFirst(null);
   }, [currentQ]);
 
-  const doFinish = async (finalAnswers, remainingTime) => {
+  const doFinish = async (finalAnswers, remaining) => {
     setSubmitting(true);
-    const timeTaken = TOTAL_TIME - (remainingTime ?? timeLeftRef.current);
+    const timeTaken = TOTAL_TIME - (remaining ?? timeLeftRef.current);
     try {
       const res = await submitQuiz({ userId, answers: finalAnswers, timeTaken, lifelinesUsed });
       setScore(res.data.result);
@@ -69,19 +68,13 @@ export default function Quiz() {
   };
 
   const goNext = (opt) => {
-    if (lockedRef.current) return;
     setLocked(true);
-
     const updated = { ...answersRef.current, [q.id]: opt };
     setAnswers(updated);
-
     setTimeout(() => {
       if (currentQ + 1 >= totalQ) {
         doFinish(updated, timeLeftRef.current);
       } else {
-        // Clear eliminated options for next question
-        setEliminatedOptions([]);
-        setDoubleTryFirst(null);
         setDoubleTryActive(false);
         setCurrentQ(c => c + 1);
       }
@@ -89,7 +82,7 @@ export default function Quiz() {
   };
 
   const handleSelect = (opt) => {
-    if (locked || eliminatedOptions.includes(opt)) return;
+    if (locked || eliminated.includes(opt)) return;
     if (doubleTryActive && !doubleTryFirst) {
       setDoubleTryFirst(opt);
       setSelected(opt);
@@ -101,10 +94,9 @@ export default function Quiz() {
 
   const useFiftyFifty = () => {
     if (lifelinesUsed.fiftyFifty || locked) return;
-    // Pick 2 options that are NOT already selected to eliminate
     const pool = OPTIONS.filter(o => o !== selected && o !== doubleTryFirst);
-    const toEliminate = pool.sort(() => Math.random() - 0.5).slice(0, 2);
-    setEliminatedOptions(toEliminate);
+    const toElim = pool.sort(() => Math.random() - 0.5).slice(0, 2);
+    setEliminated(toElim);
     setLifelinesUsed(prev => ({ ...prev, fiftyFifty: true }));
     setShowModal(null);
   };
@@ -118,11 +110,11 @@ export default function Quiz() {
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    const sc = s % 60;
+    return `${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
   };
 
-  const timerColor = timeLeft <= 60 ? '#e50914' : timeLeft <= 120 ? '#ff9800' : 'var(--gold)';
+  const timerColor = timeLeft <= 60 ? '#e50914' : timeLeft <= 120 ? '#ff9800' : '#f5c518';
   const progress   = ((currentQ + 1) / totalQ) * 100;
 
   if (submitting) return (
@@ -188,27 +180,68 @@ export default function Quiz() {
           <p className="question-text">{q?.question}</p>
         </div>
 
-        {/* All 4 Options — always rendered */}
-        <div className="options-grid">
+        {/* OPTIONS — inline styles guarantee all 4 show */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '14px',
+          width: '100%'
+        }}>
           {OPTIONS.map(opt => {
-            const isElim   = eliminatedOptions.includes(opt);
-            const isSel    = selected === opt && !doubleTryFirst;
-            const isFirst  = doubleTryFirst === opt;
-
-            let className = 'option-btn';
-            if (isElim)  className += ' eliminated';
-            if (isSel)   className += ' selected';
-            if (isFirst) className += ' double-first';
+            const isElim  = eliminated.includes(opt);
+            const isSel   = selected === opt && opt !== doubleTryFirst;
+            const isFirst = doubleTryFirst === opt;
 
             return (
               <button
                 key={opt}
-                className={className}
                 onClick={() => handleSelect(opt)}
-                disabled={isElim || locked}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  width: '100%',
+                  padding: '18px 20px',
+                  borderRadius: '10px',
+                  cursor: locked || isElim ? 'default' : 'pointer',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  textAlign: 'left',
+                  transition: 'all 0.2s ease',
+                  opacity: isElim ? 0.2 : 1,
+                  textDecoration: isElim ? 'line-through' : 'none',
+                  background: isSel
+                    ? 'rgba(245,197,24,0.12)'
+                    : isFirst
+                    ? 'rgba(124,77,255,0.12)'
+                    : '#1e1e2e',
+                  border: isSel
+                    ? '1px solid #f5c518'
+                    : isFirst
+                    ? '1px solid #7c4dff'
+                    : '1px solid rgba(255,255,255,0.1)',
+                  color: isSel ? '#f5c518' : isFirst ? '#ce93d8' : '#e8e8f0',
+                }}
               >
-                <span className="opt-label">{opt}</span>
-                <span className="opt-text">{q?.options?.[opt]}</span>
+                <span style={{
+                  minWidth: '34px',
+                  height: '34px',
+                  background: '#12121a',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontFamily: 'Cinzel, serif',
+                  fontWeight: '700',
+                  fontSize: '0.85rem',
+                  color: '#f5c518',
+                  flexShrink: 0,
+                }}>
+                  {opt}
+                </span>
+                <span style={{ flex: 1 }}>{q?.options?.[opt]}</span>
               </button>
             );
           })}
