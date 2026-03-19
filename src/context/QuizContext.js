@@ -9,7 +9,7 @@ export const QuizProvider = ({ children }) => {
   const [answers, setAnswers] = useState({});
   const [score, setScore] = useState(null);
   const [startTime, setStartTime] = useState(null);
-  const [phase, setPhase] = useState('landing'); // landing | quiz | result | leaderboard
+  const [phase, setPhase] = useState('landing');
   const [lifelinesUsed, setLifelinesUsed] = useState({ fiftyFifty: false, doubleTry: false });
   const [eliminatedOptions, setEliminatedOptions] = useState([]);
   const [doubleTryActive, setDoubleTryActive] = useState(false);

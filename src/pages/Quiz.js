@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuiz } from '../context/QuizContext';
 import { submitQuiz } from '../utils/api';
 import './Quiz.css';
 
-const TOTAL_TIME = 600; // 10 minutes in seconds
+const TOTAL_TIME = 600;
 const OPTIONS = ['A', 'B', 'C', 'D'];
 
 export default function Quiz() {
@@ -16,58 +16,77 @@ export default function Quiz() {
     doubleTryFirst, setDoubleTryFirst
   } = useQuiz();
 
-  const [selected, setSelected]     = useState(null);
-  const [timeLeft, setTimeLeft]     = useState(TOTAL_TIME);
-  const [submitting, setSubmitting] = useState(false);
-  const [showLifelineModal, setShowLifelineModal] = useState(null);
-  const [locked, setLocked]         = useState(false);
+  const [selected, setSelected]           = useState(null);
+  const [timeLeft, setTimeLeft]           = useState(TOTAL_TIME);
+  const [submitting, setSubmitting]       = useState(false);
+  const [showModal, setShowModal]         = useState(null);
+  const [locked, setLocked]              = useState(false);
+
+  const answersRef   = useRef(answers);
+  const timeLeftRef  = useRef(timeLeft);
+  const lockedRef    = useRef(locked);
+
+  answersRef.current  = answers;
+  timeLeftRef.current = timeLeft;
+  lockedRef.current   = locked;
 
   const q      = questions[currentQ];
   const totalQ = questions.length;
-  const progress = ((currentQ + 1) / totalQ) * 100;
 
-  // Overall 10-minute countdown
+  // One-time 10-minute countdown
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(t => {
-        if (t <= 1) {
-          clearInterval(timer);
-          // Time's up — auto submit with whatever answers we have
-          handleTimeUp();
+    const interval = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          if (!lockedRef.current) doFinish(answersRef.current, 0);
           return 0;
         }
-        return t - 1;
+        return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
-  }, []); // only runs once on mount
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line
 
-  const handleTimeUp = useCallback(() => {
-    setLocked(true);
-    finishQuiz(answers);
-  }, [answers]);
-
-  // Reset selection state on question change (but NOT timer)
+  // Reset per-question state ONLY — never touch eliminatedOptions here
   useEffect(() => {
     setSelected(null);
     setLocked(false);
-    if (!doubleTryActive) setEliminatedOptions([]);
   }, [currentQ]);
 
-  const goNext = useCallback((opt) => {
+  const doFinish = async (finalAnswers, remainingTime) => {
+    setSubmitting(true);
+    const timeTaken = TOTAL_TIME - (remainingTime ?? timeLeftRef.current);
+    try {
+      const res = await submitQuiz({ userId, answers: finalAnswers, timeTaken, lifelinesUsed });
+      setScore(res.data.result);
+      localStorage.setItem(`played_${userId}`, 'true');
+      setPhase('result');
+    } catch (err) {
+      console.error(err);
+      setSubmitting(false);
+    }
+  };
+
+  const goNext = (opt) => {
+    if (lockedRef.current) return;
     setLocked(true);
-    const updatedAnswers = { ...answers, [q.id]: opt };
-    setAnswers(updatedAnswers);
+
+    const updated = { ...answersRef.current, [q.id]: opt };
+    setAnswers(updated);
+
     setTimeout(() => {
       if (currentQ + 1 >= totalQ) {
-        finishQuiz(updatedAnswers);
+        doFinish(updated, timeLeftRef.current);
       } else {
+        // Clear eliminated options for next question
+        setEliminatedOptions([]);
         setDoubleTryFirst(null);
         setDoubleTryActive(false);
         setCurrentQ(c => c + 1);
       }
-    }, 600);
-  }, [answers, currentQ, q, totalQ]);
+    }, 700);
+  };
 
   const handleSelect = (opt) => {
     if (locked || eliminatedOptions.includes(opt)) return;
@@ -80,45 +99,31 @@ export default function Quiz() {
     goNext(opt);
   };
 
-  const finishQuiz = async (finalAnswers) => {
-    setSubmitting(true);
-    const timeTaken = TOTAL_TIME - timeLeft;
-    try {
-      const res = await submitQuiz({ userId, answers: finalAnswers, timeTaken, lifelinesUsed });
-      setScore(res.data.result);
-      // Mark user as played in localStorage so they can't play again
-      localStorage.setItem(`played_${userId}`, 'true');
-      setPhase('result');
-    } catch (err) {
-      console.error(err);
-      setSubmitting(false);
-    }
-  };
-
   const useFiftyFifty = () => {
     if (lifelinesUsed.fiftyFifty || locked) return;
-    const available = OPTIONS.filter(o => o !== selected);
-    const toEliminate = available.sort(() => Math.random() - 0.5).slice(0, 2);
+    // Pick 2 options that are NOT already selected to eliminate
+    const pool = OPTIONS.filter(o => o !== selected && o !== doubleTryFirst);
+    const toEliminate = pool.sort(() => Math.random() - 0.5).slice(0, 2);
     setEliminatedOptions(toEliminate);
     setLifelinesUsed(prev => ({ ...prev, fiftyFifty: true }));
-    setShowLifelineModal(null);
+    setShowModal(null);
   };
 
   const useDoubleTry = () => {
-    if (lifelinesUsed.doubleTry || selected || locked) return;
+    if (lifelinesUsed.doubleTry || locked) return;
     setDoubleTryActive(true);
     setLifelinesUsed(prev => ({ ...prev, doubleTry: true }));
-    setShowLifelineModal(null);
+    setShowModal(null);
   };
 
-  // Format mm:ss
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
     const sec = s % 60;
-    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
   };
 
   const timerColor = timeLeft <= 60 ? '#e50914' : timeLeft <= 120 ? '#ff9800' : 'var(--gold)';
+  const progress   = ((currentQ + 1) / totalQ) * 100;
 
   if (submitting) return (
     <div className="quiz-loading">
@@ -133,74 +138,74 @@ export default function Quiz() {
   return (
     <div className="quiz-page">
       <div className="stars-bg" />
+
       <header className="quiz-header">
-        <div className="quiz-header-left">
-          <div className="player-badge"><span className="player-icon">🎭</span><span>{userId}</span></div>
+        <div className="player-badge"><span>🎭</span><span>{userId}</span></div>
+        <div className="question-counter">
+          <span className="q-num">{currentQ + 1}</span>
+          <span className="q-sep">/</span>
+          <span className="q-total">{totalQ}</span>
         </div>
-        <div className="quiz-header-center">
-          <div className="question-counter">
-            <span className="q-num">{currentQ + 1}</span>
-            <span className="q-sep">/</span>
-            <span className="q-total">{totalQ}</span>
-          </div>
-        </div>
-        <div className="quiz-header-right">
-          <div className="timer-box" style={{ color: timerColor, borderColor: timerColor }}>
-            <span className="timer-icon">⏱</span>
-            <span className="timer-val">{formatTime(timeLeft)}</span>
-          </div>
+        <div className="timer-box" style={{ color: timerColor, borderColor: timerColor }}>
+          <span>⏱</span>
+          <span className="timer-val">{formatTime(timeLeft)}</span>
         </div>
       </header>
 
-      {/* Overall progress bar (questions) */}
       <div className="progress-track">
         <div className="progress-fill" style={{ width: `${progress}%` }} />
-        {/* Time bar */}
-        <div className="progress-timer" style={{
-          width: `${(timeLeft / TOTAL_TIME) * 100}%`,
-          background: timerColor
-        }} />
       </div>
 
       <div className="quiz-body">
+
+        {/* Lifelines */}
         <div className="lifelines-bar">
-          <button className={`lifeline-btn ${lifelinesUsed.fiftyFifty ? 'used' : ''}`}
-            onClick={() => !lifelinesUsed.fiftyFifty && !locked && setShowLifelineModal('fiftyFifty')}>
-            <span className="ll-icon">✂️</span>
-            <span>50:50</span>
+          <button
+            className={`lifeline-btn ${lifelinesUsed.fiftyFifty ? 'used' : ''}`}
+            onClick={() => !lifelinesUsed.fiftyFifty && !locked && setShowModal('fiftyFifty')}
+          >
+            <span>✂️</span><span>50:50</span>
             {lifelinesUsed.fiftyFifty && <span className="used-badge">USED</span>}
           </button>
-          <button className={`lifeline-btn ${lifelinesUsed.doubleTry ? 'used' : ''}`}
-            onClick={() => !lifelinesUsed.doubleTry && !selected && !locked && setShowLifelineModal('doubleTry')}>
-            <span className="ll-icon">🎯</span>
-            <span>Double Try</span>
+          <button
+            className={`lifeline-btn ${lifelinesUsed.doubleTry ? 'used' : ''}`}
+            onClick={() => !lifelinesUsed.doubleTry && !locked && setShowModal('doubleTry')}
+          >
+            <span>🎯</span><span>Double Try</span>
             {lifelinesUsed.doubleTry && <span className="used-badge">USED</span>}
           </button>
           {doubleTryActive && (
             <div className="double-try-active">
-              {doubleTryFirst ? `🎯 Selected: ${doubleTryFirst} — Confirm or change` : '🎯 DOUBLE TRY ACTIVE — Pick carefully!'}
+              {doubleTryFirst ? `🎯 Selected: ${doubleTryFirst} — Confirm below` : '🎯 DOUBLE TRY — Pick carefully!'}
             </div>
           )}
         </div>
 
+        {/* Question */}
         <div className="question-card">
           <div className="q-number-tag">Q{currentQ + 1}</div>
-          <div className="question-points"><span>💎 {q?.points || 100} pts</span></div>
+          <div className="question-points">💎 {q?.points || 100} PTS</div>
           <p className="question-text">{q?.question}</p>
         </div>
 
-        {/* Always render all 4 options */}
+        {/* All 4 Options — always rendered */}
         <div className="options-grid">
           {OPTIONS.map(opt => {
-            const isEliminated = eliminatedOptions.includes(opt);
-            const isSelected   = selected === opt;
-            const isFirstPick  = doubleTryFirst === opt;
+            const isElim   = eliminatedOptions.includes(opt);
+            const isSel    = selected === opt && !doubleTryFirst;
+            const isFirst  = doubleTryFirst === opt;
+
+            let className = 'option-btn';
+            if (isElim)  className += ' eliminated';
+            if (isSel)   className += ' selected';
+            if (isFirst) className += ' double-first';
+
             return (
               <button
                 key={opt}
-                className={['option-btn', isEliminated ? 'eliminated' : '', isSelected && !isFirstPick ? 'selected' : '', isFirstPick ? 'double-first' : ''].join(' ').trim()}
+                className={className}
                 onClick={() => handleSelect(opt)}
-                disabled={isEliminated || (locked && !isSelected)}
+                disabled={isElim || locked}
               >
                 <span className="opt-label">{opt}</span>
                 <span className="opt-text">{q?.options?.[opt]}</span>
@@ -209,25 +214,35 @@ export default function Quiz() {
           })}
         </div>
 
+        {/* Confirm double try */}
         {doubleTryActive && doubleTryFirst && !locked && (
-          <button className="confirm-btn btn-gold" onClick={() => { setSelected(doubleTryFirst); goNext(doubleTryFirst); }}>
-            ✅ Confirm Answer → {doubleTryFirst}
+          <button className="confirm-btn btn-gold"
+            onClick={() => { setSelected(doubleTryFirst); goNext(doubleTryFirst); }}>
+            ✅ Confirm → {doubleTryFirst}
           </button>
         )}
 
-        {!selected && !locked && (
-          <button className="skip-btn" onClick={() => goNext(null)}>Skip Question →</button>
+        {/* Skip */}
+        {!locked && !selected && (
+          <button className="skip-btn" onClick={() => goNext(null)}>
+            Skip →
+          </button>
         )}
       </div>
 
-      {showLifelineModal && (
-        <div className="modal-overlay" onClick={() => setShowLifelineModal(null)}>
+      {/* Lifeline Modal */}
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(null)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3>{showLifelineModal === 'fiftyFifty' ? '✂️ USE 50:50?' : '🎯 USE DOUBLE TRY?'}</h3>
-            <p>{showLifelineModal === 'fiftyFifty' ? 'Two wrong options will be eliminated. This cannot be undone.' : 'You will get 2 attempts on this question. Use it wisely!'}</p>
+            <h3>{showModal === 'fiftyFifty' ? '✂️ USE 50:50?' : '🎯 USE DOUBLE TRY?'}</h3>
+            <p>{showModal === 'fiftyFifty'
+              ? 'Eliminates 2 wrong options. Cannot be undone.'
+              : 'Get 2 attempts on this question. Use wisely!'}</p>
             <div className="modal-btns">
-              <button className="btn-gold" onClick={showLifelineModal === 'fiftyFifty' ? useFiftyFifty : useDoubleTry}>Yes, Use It!</button>
-              <button className="btn-outline" onClick={() => setShowLifelineModal(null)}>Cancel</button>
+              <button className="btn-gold" onClick={showModal === 'fiftyFifty' ? useFiftyFifty : useDoubleTry}>
+                Yes, Use It!
+              </button>
+              <button className="btn-outline" onClick={() => setShowModal(null)}>Cancel</button>
             </div>
           </div>
         </div>
