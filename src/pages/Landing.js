@@ -4,39 +4,31 @@ import { getQuestions } from '../utils/api';
 import './Landing.css';
 
 export default function Landing() {
-  const { setQuestions, setPhase, setStartTime, setUserId: setCtxUserId } = useQuiz();
-  const [input, setInput]     = useState('');
+  const { setUserId, setQuestions, setPhase, setStartTime, userId, setUserId: setCtxUserId } = useQuiz();
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
+  const [error, setError] = useState('');
 
   const handleStart = async (e) => {
     e.preventDefault();
-    const trimmed = input.trim().toUpperCase();
-    if (!trimmed) return setError('Please enter your Player ID');
-    if (trimmed.length < 2) return setError('Player ID must be at least 2 characters');
-
-    // Check if this player has already played
-    const alreadyPlayed = localStorage.getItem(`played_${trimmed}`);
-    if (alreadyPlayed) {
-      setError('⛔ You have already played! Each Player ID gets only one attempt. Check the leaderboard for your rank.');
-      return;
-    }
+    if (!input.trim()) return setError('Please enter your Player ID');
+    if (input.trim().length < 2) return setError('Player ID must be at least 2 characters');
 
     setLoading(true);
     setError('');
     try {
       const res = await getQuestions();
-      if (!res.data.questions || res.data.questions.length === 0) {
-        setError('No questions found. Please contact the admin.');
+      if (res.data.questions.length === 0) {
+        setError('No questions found. Please seed questions first.');
         setLoading(false);
         return;
       }
-      setCtxUserId(trimmed);
+      setCtxUserId(input.trim().toUpperCase());
       setQuestions(res.data.questions);
       setStartTime(Date.now());
       setPhase('quiz');
     } catch (err) {
-      setError('Failed to connect to server. Please try again.');
+      setError('Failed to connect to server. Check your connection.');
     }
     setLoading(false);
   };
@@ -45,6 +37,7 @@ export default function Landing() {
     <div className="landing">
       <div className="stars-bg" />
 
+      {/* Film strip decorations */}
       <div className="film-strip film-strip-left">
         {Array(20).fill(0).map((_, i) => <div key={i} className="film-hole" />)}
       </div>
@@ -61,7 +54,9 @@ export default function Landing() {
           <span className="title-line3">QUIZ</span>
         </h1>
 
-        <p className="landing-sub">20 Questions · 10 Minutes · One Shot Only</p>
+        <p className="landing-sub">
+          20 Questions · 3 Lifelines · One Champion
+        </p>
 
         <div className="divider-stars">
           <span>✦</span><span>★</span><span>✦</span>
@@ -69,7 +64,7 @@ export default function Landing() {
 
         <div className="landing-card">
           <h2 className="card-title">ENTER THE SCREENING ROOM</h2>
-          <p className="card-sub">Enter your Player ID to begin. <strong style={{color:'#e50914'}}>You get only ONE attempt!</strong></p>
+          <p className="card-sub">Enter your Player ID to begin the ultimate movie quiz experience</p>
 
           <form onSubmit={handleStart} className="start-form">
             <div className="input-wrapper">
@@ -77,7 +72,7 @@ export default function Landing() {
               <input
                 type="text"
                 value={input}
-                onChange={e => { setInput(e.target.value); setError(''); }}
+                onChange={e => setInput(e.target.value)}
                 placeholder="YOUR PLAYER ID"
                 className="player-input"
                 maxLength={20}
@@ -88,21 +83,27 @@ export default function Landing() {
 
             <button type="submit" className="btn-gold start-btn" disabled={loading}>
               {loading ? (
-                <span className="loading-dots"><span /><span /><span /></span>
+                <span className="loading-dots">
+                  <span /><span /><span />
+                </span>
               ) : '🎬 START QUIZ'}
             </button>
           </form>
 
-          <div className="rules-box">
-            <h3>📋 RULES</h3>
-            <ul>
-              <li>⏱ Total time: <strong>10 minutes</strong> for all 20 questions</li>
-              <li>🎯 No per-question timer — manage your time wisely</li>
-              <li>✂️ 50:50 — eliminates 2 wrong options (once only)</li>
-              <li>🎯 Double Try — 2 attempts on one question (once only)</li>
-              <li>⛔ Each Player ID can play <strong>only once</strong></li>
-              <li>🏆 Ranked by Score → Time → Lifelines Used</li>
-            </ul>
+          <div className="lifelines-preview">
+            <h3>AVAILABLE LIFELINES</h3>
+            <div className="lifeline-pills">
+              <div className="lifeline-pill">
+                <span className="ll-icon">✂️</span>
+                <span>50:50</span>
+                <small>Eliminate 2 wrong options</small>
+              </div>
+              <div className="lifeline-pill">
+                <span className="ll-icon">🎯</span>
+                <span>Double Try</span>
+                <small>Get 2 attempts per question</small>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -113,13 +114,13 @@ export default function Landing() {
           </div>
           <div className="stat-divider" />
           <div className="stat-item">
-            <span className="stat-num">10</span>
-            <span className="stat-label">Minutes</span>
+            <span className="stat-num">2000</span>
+            <span className="stat-label">Max Score</span>
           </div>
           <div className="stat-divider" />
           <div className="stat-item">
-            <span className="stat-num">2000</span>
-            <span className="stat-label">Max Score</span>
+            <span className="stat-num">2</span>
+            <span className="stat-label">Lifelines</span>
           </div>
         </div>
 
