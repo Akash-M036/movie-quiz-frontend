@@ -10,13 +10,13 @@ export default function Quiz() {
   const {
     userId, questions, currentQ, setCurrentQ,
     answers, setAnswers, setScore, setPhase,
-    startTime, lifelinesUsed, setLifelinesUsed,
+    lifelinesUsed, setLifelinesUsed,
     doubleTryActive, setDoubleTryActive,
     doubleTryFirst, setDoubleTryFirst
   } = useQuiz();
 
   const [selected, setSelected]     = useState(null);
-  const [eliminated, setEliminated] = useState([]); // LOCAL state, not context
+  const [eliminated, setEliminated] = useState([]);
   const [timeLeft, setTimeLeft]     = useState(TOTAL_TIME);
   const [submitting, setSubmitting] = useState(false);
   const [showModal, setShowModal]   = useState(null);
@@ -30,25 +30,23 @@ export default function Quiz() {
   const q      = questions[currentQ];
   const totalQ = questions.length;
 
-  // 10-minute global timer — runs once
+  // Log question data to debug
+  console.log('Current Q:', currentQ, 'Question object:', q);
+  console.log('Options:', q?.options);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          doFinish(answersRef.current, 0);
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(interval); doFinish(answersRef.current, 0); return 0; }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
-  // Reset per-question UI when question changes
   useEffect(() => {
     setSelected(null);
-    setEliminated([]); // always reset eliminated for new question
+    setEliminated([]);
     setLocked(false);
     setDoubleTryFirst(null);
   }, [currentQ]);
@@ -127,6 +125,17 @@ export default function Quiz() {
     </div>
   );
 
+  // Safety check — if question not loaded yet
+  if (!q || !q.options) return (
+    <div className="quiz-loading">
+      <div className="stars-bg" />
+      <div className="submit-loader">
+        <div className="film-reel">⏳</div>
+        <p>Loading question...</p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="quiz-page">
       <div className="stars-bg" />
@@ -152,23 +161,19 @@ export default function Quiz() {
 
         {/* Lifelines */}
         <div className="lifelines-bar">
-          <button
-            className={`lifeline-btn ${lifelinesUsed.fiftyFifty ? 'used' : ''}`}
-            onClick={() => !lifelinesUsed.fiftyFifty && !locked && setShowModal('fiftyFifty')}
-          >
+          <button className={`lifeline-btn ${lifelinesUsed.fiftyFifty ? 'used' : ''}`}
+            onClick={() => !lifelinesUsed.fiftyFifty && !locked && setShowModal('fiftyFifty')}>
             <span>✂️</span><span>50:50</span>
             {lifelinesUsed.fiftyFifty && <span className="used-badge">USED</span>}
           </button>
-          <button
-            className={`lifeline-btn ${lifelinesUsed.doubleTry ? 'used' : ''}`}
-            onClick={() => !lifelinesUsed.doubleTry && !locked && setShowModal('doubleTry')}
-          >
+          <button className={`lifeline-btn ${lifelinesUsed.doubleTry ? 'used' : ''}`}
+            onClick={() => !lifelinesUsed.doubleTry && !locked && setShowModal('doubleTry')}>
             <span>🎯</span><span>Double Try</span>
             {lifelinesUsed.doubleTry && <span className="used-badge">USED</span>}
           </button>
           {doubleTryActive && (
             <div className="double-try-active">
-              {doubleTryFirst ? `🎯 Selected: ${doubleTryFirst} — Confirm below` : '🎯 DOUBLE TRY — Pick carefully!'}
+              {doubleTryFirst ? `🎯 Selected: ${doubleTryFirst}` : '🎯 DOUBLE TRY — Pick!'}
             </div>
           )}
         </div>
@@ -176,78 +181,65 @@ export default function Quiz() {
         {/* Question */}
         <div className="question-card">
           <div className="q-number-tag">Q{currentQ + 1}</div>
-          <div className="question-points">💎 {q?.points || 100} PTS</div>
-          <p className="question-text">{q?.question}</p>
+          <div className="question-points">💎 {q.points || 100} PTS</div>
+          <p className="question-text">{q.question}</p>
         </div>
 
-        {/* OPTIONS — inline styles guarantee all 4 show */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '14px',
-          width: '100%'
-        }}>
-          {OPTIONS.map(opt => {
+        {/* OPTIONS — hardcoded A B C D, no map, no CSS classes */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'14px', width:'100%' }}>
+
+          {['A','B','C','D'].map(opt => {
+            const val     = q.options[opt] || '—';
             const isElim  = eliminated.includes(opt);
             const isSel   = selected === opt && opt !== doubleTryFirst;
             const isFirst = doubleTryFirst === opt;
 
+            const bg     = isSel ? 'rgba(245,197,24,0.15)' : isFirst ? 'rgba(124,77,255,0.15)' : '#1e1e2e';
+            const border = isSel ? '#f5c518' : isFirst ? '#7c4dff' : 'rgba(255,255,255,0.1)';
+            const color  = isSel ? '#f5c518' : isFirst ? '#ce93d8' : '#e8e8f0';
+
             return (
-              <button
+              <div
                 key={opt}
-                onClick={() => handleSelect(opt)}
+                onClick={() => !isElim && !locked && handleSelect(opt)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '14px',
-                  width: '100%',
-                  padding: '18px 20px',
+                  gap: '12px',
+                  padding: '16px 18px',
                   borderRadius: '10px',
-                  cursor: locked || isElim ? 'default' : 'pointer',
-                  fontFamily: 'Raleway, sans-serif',
-                  fontSize: '0.9rem',
-                  fontWeight: '500',
-                  textAlign: 'left',
-                  transition: 'all 0.2s ease',
+                  border: `1px solid ${border}`,
+                  background: bg,
+                  color: color,
+                  cursor: isElim || locked ? 'default' : 'pointer',
                   opacity: isElim ? 0.2 : 1,
                   textDecoration: isElim ? 'line-through' : 'none',
-                  background: isSel
-                    ? 'rgba(245,197,24,0.12)'
-                    : isFirst
-                    ? 'rgba(124,77,255,0.12)'
-                    : '#1e1e2e',
-                  border: isSel
-                    ? '1px solid #f5c518'
-                    : isFirst
-                    ? '1px solid #7c4dff'
-                    : '1px solid rgba(255,255,255,0.1)',
-                  color: isSel ? '#f5c518' : isFirst ? '#ce93d8' : '#e8e8f0',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontSize: '0.9rem',
+                  fontWeight: 500,
+                  transition: 'all 0.2s',
+                  userSelect: 'none',
+                  minHeight: '60px',
                 }}
               >
                 <span style={{
-                  minWidth: '34px',
-                  height: '34px',
-                  background: '#12121a',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontFamily: 'Cinzel, serif',
-                  fontWeight: '700',
-                  fontSize: '0.85rem',
-                  color: '#f5c518',
-                  flexShrink: 0,
+                  minWidth:'32px', height:'32px',
+                  borderRadius:'50%',
+                  background:'#12121a',
+                  border:'1px solid rgba(255,255,255,0.15)',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:'Cinzel,serif', fontWeight:700,
+                  fontSize:'0.8rem', color:'#f5c518', flexShrink:0
                 }}>
                   {opt}
                 </span>
-                <span style={{ flex: 1 }}>{q?.options?.[opt]}</span>
-              </button>
+                <span style={{ flex:1, lineHeight:1.4 }}>{val}</span>
+              </div>
             );
           })}
+
         </div>
 
-        {/* Confirm double try */}
         {doubleTryActive && doubleTryFirst && !locked && (
           <button className="confirm-btn btn-gold"
             onClick={() => { setSelected(doubleTryFirst); goNext(doubleTryFirst); }}>
@@ -255,15 +247,11 @@ export default function Quiz() {
           </button>
         )}
 
-        {/* Skip */}
         {!locked && !selected && (
-          <button className="skip-btn" onClick={() => goNext(null)}>
-            Skip →
-          </button>
+          <button className="skip-btn" onClick={() => goNext(null)}>Skip →</button>
         )}
       </div>
 
-      {/* Lifeline Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(null)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
@@ -272,9 +260,7 @@ export default function Quiz() {
               ? 'Eliminates 2 wrong options. Cannot be undone.'
               : 'Get 2 attempts on this question. Use wisely!'}</p>
             <div className="modal-btns">
-              <button className="btn-gold" onClick={showModal === 'fiftyFifty' ? useFiftyFifty : useDoubleTry}>
-                Yes, Use It!
-              </button>
+              <button className="btn-gold" onClick={showModal === 'fiftyFifty' ? useFiftyFifty : useDoubleTry}>Yes, Use It!</button>
               <button className="btn-outline" onClick={() => setShowModal(null)}>Cancel</button>
             </div>
           </div>
