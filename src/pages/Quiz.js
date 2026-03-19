@@ -3,7 +3,7 @@ import { useQuiz } from '../context/QuizContext';
 import { submitQuiz } from '../utils/api';
 import './Quiz.css';
 
-const TOTAL_TIME = 600; // ✅ 10 minutes
+const TOTAL_TIME = 600; // 10 minutes
 const OPTIONS = ['A', 'B', 'C', 'D'];
 
 export default function Quiz() {
@@ -21,17 +21,51 @@ const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
 const [submitting, setSubmitting] = useState(false);
 const [showLifelineModal, setShowLifelineModal] = useState(null);
 
-const q = questions[currentQ];
+// ✅ SAFETY CHECK
+if (!questions || questions.length === 0) {
+return <div className="quiz-loading">Loading questions...</div>;
+}
+
+const q = questions?.[currentQ];
+
+if (!q) {
+return <div className="quiz-loading">Preparing question...</div>;
+}
+
 const totalQ = questions.length;
 const progress = ((currentQ + 1) / totalQ) * 100;
 
-// ✅ GLOBAL TIMER (10 minutes)
+// ✅ FIXED finishQuiz
+const finishQuiz = useCallback(async (finalAnswers) => {
+setSubmitting(true);
+const timeTaken = Math.floor((Date.now() - startTime) / 1000);
+
+```
+try {
+  const res = await submitQuiz({
+    userId,
+    answers: finalAnswers,
+    timeTaken,
+    lifelinesUsed
+  });
+  setScore(res.data.result);
+  setPhase('result');
+} catch (err) {
+  console.error(err);
+}
+
+setSubmitting(false);
+```
+
+}, [userId, startTime, lifelinesUsed, setScore, setPhase]);
+
+// ✅ GLOBAL TIMER
 useEffect(() => {
 const timer = setInterval(() => {
 setTimeLeft(t => {
 if (t <= 1) {
 clearInterval(timer);
-finishQuiz(answers); // auto submit
+finishQuiz({ ...answers }); // safe copy
 return 0;
 }
 return t - 1;
@@ -42,15 +76,15 @@ return t - 1;
 return () => clearInterval(timer);
 ```
 
-}, []);
+}, [finishQuiz, answers]);
 
-// Reset per question (without timer reset)
+// Reset UI per question
 useEffect(() => {
 setSelected(null);
 if (!doubleTryActive) {
 setEliminatedOptions([]);
 }
-}, [currentQ]);
+}, [currentQ, doubleTryActive, setEliminatedOptions]);
 
 const handleSelect = (opt) => {
 if (selected || eliminatedOptions.includes(opt)) return;
@@ -84,30 +118,7 @@ if (currentQ + 1 >= totalQ) {
 }
 ```
 
-}, [answers, currentQ, q, totalQ]);
-
-const finishQuiz = async (finalAnswers) => {
-setSubmitting(true);
-const timeTaken = Math.floor((Date.now() - startTime) / 1000);
-
-```
-try {
-  const res = await submitQuiz({
-    userId,
-    answers: finalAnswers,
-    timeTaken,
-    lifelinesUsed
-  });
-  setScore(res.data.result);
-  setPhase('result');
-} catch (err) {
-  console.error(err);
-}
-
-setSubmitting(false);
-```
-
-};
+}, [answers, currentQ, q, totalQ, finishQuiz, setAnswers, setCurrentQ, setDoubleTryActive, setDoubleTryFirst]);
 
 // ✅ 50:50 FIXED
 const useFiftyFifty = () => {
@@ -154,11 +165,7 @@ return ( <div className="quiz-page">
   {/* Header */}
   <header className="quiz-header">
     <div>{userId}</div>
-
-    <div>
-      {currentQ + 1} / {totalQ}
-    </div>
-
+    <div>{currentQ + 1} / {totalQ}</div>
     <div className="timer-box" style={{ color: timerColor }}>
       ⏱ {formatTime(timeLeft)}
     </div>
@@ -169,9 +176,7 @@ return ( <div className="quiz-page">
     <div className="progress-fill" style={{ width: `${progress}%` }} />
     <div
       className="progress-timer"
-      style={{
-        width: `${(timeLeft / TOTAL_TIME) * 100}%`
-      }}
+      style={{ width: `${(timeLeft / TOTAL_TIME) * 100}%` }}
     />
   </div>
 
@@ -182,7 +187,6 @@ return ( <div className="quiz-page">
       <p className="question-text">{q?.question}</p>
     </div>
 
-    {/* Options */}
     <div className="options-grid">
       {OPTIONS.map(opt => {
         const isEliminated = eliminatedOptions.includes(opt);
@@ -195,7 +199,9 @@ return ( <div className="quiz-page">
             disabled={isEliminated}
           >
             <span className="opt-label">{opt}</span>
-            <span className="opt-text">{q?.options?.[opt]}</span>
+            <span className="opt-text">
+              {q?.options?.[opt] || "Option not available"}
+            </span>
           </button>
         );
       })}
