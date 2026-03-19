@@ -242,3 +242,31 @@
   .landing-card { padding: 24px; }
   .lifeline-pills { flex-direction: column; }
 }
+
+.rules-box {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.rules-box h3 {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.rules-box ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rules-box li {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding-left: 4px;
+}
+.rules-box li strong {
+  color: var(--text);
+}
